@@ -1,5 +1,6 @@
 const AccessLog  = require('../models/AccessLog');
-const Classroom  = require('../models/Classroom');
+const Classroom  = require('../models/Classroom');  // ← required so Mongoose knows the model for populate
+const RfidUser   = require('../models/RfidUser');   // ← same for user populate
 
 // GET /api/access-logs
 const getAccessLogs = async (req, res) => {
@@ -48,7 +49,6 @@ const getAccessLogs = async (req, res) => {
 const getAccessLogStats = async (req, res) => {
   try {
     const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-
     const [total, granted, denied, today] = await Promise.all([
       AccessLog.countDocuments(),
       AccessLog.countDocuments({ status: 'granted' }),
