@@ -16,7 +16,7 @@ interface Schedule {
 }
 interface Subject       { _id: string; code: string; description: string }
 interface Room          { _id: string; room_code: string }
-interface Faculty       { _id: string; first_name: string; last_name: string }
+interface Faculty       { _id: string; first_name: string; last_name: string; status: string }
 interface CourseSection { _id: string; name: string }
 
 const dayColors: Record<string, string> = {
@@ -50,6 +50,7 @@ const SchedulePage = () => {
   const [showImport, setShowImport]       = useState(false)
   const [showAdd, setShowAdd]             = useState(false)
   const [deleteTarget, setDeleteTarget]   = useState<Schedule | null>(null)
+  const [deleteError, setDeleteError]     = useState<string | null>(null)
   const [saving, setSaving]               = useState(false)
   const [importing, setImporting]         = useState(false)
   const [importResult, setImportResult]   = useState<{ type: 'success'|'error'; message: string } | null>(null)
@@ -85,14 +86,14 @@ const SchedulePage = () => {
 
   useEffect(() => { fetchSchedules(showArchive) }, [showArchive, fetchSchedules])
 
-  // ── Fetch dropdowns ─────────────────────────────────────────────────────
+  // ── Fetch dropdowns — only active faculty ───────────────────────────────
   useEffect(() => {
     const load = async () => {
       try {
         const [s, r, f, sec] = await Promise.all([
           fetch(`${API}/api/schedule/subjects`),
           fetch(`${API}/api/rooms`),
-          fetch(`${API}/api/users?role=Faculty`),
+          fetch(`${API}/api/users?role=Faculty&status=Active`), // ← only active faculty
           fetch(`${API}/api/users/sections`),
         ])
         if (s.ok)   setSubjects(await s.json())
@@ -147,6 +148,9 @@ const SchedulePage = () => {
     return acc
   }, {} as Record<string, Schedule[]>)
 
+  // ── Selected faculty info (for preview in form) ─────────────────────────
+  const selectedFaculty = faculties.find(f => f._id === form.faculty) || null
+
   // ── Add schedule ────────────────────────────────────────────────────────
   const handleAdd = async () => {
     if (!form.subject || !form.room || !form.faculty || !form.day || !form.start_time || !form.end_time || form.allowed_sections.length === 0) {
@@ -183,10 +187,18 @@ const SchedulePage = () => {
     if (!deleteTarget) return
     try {
       setSaving(true)
-      await fetch(`${API}/api/schedule/${deleteTarget._id}`, { method: 'DELETE' })
+      const res = await fetch(`${API}/api/schedule/${deleteTarget._id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const err = await res.json()
+        setDeleteError(err.message)
+        return
+      }
       await fetchSchedules(showArchive)
       setDeleteTarget(null)
-    } finally { setSaving(false) }
+      setDeleteError(null)
+    } finally {
+      setSaving(false)
+    }
   }
 
   const handleRestore = async (id: string) => {
@@ -223,7 +235,6 @@ const SchedulePage = () => {
       const data  = await file.arrayBuffer()
       const wb    = XLSX.read(data)
 
-      // Use "Schedules" sheet if it exists, otherwise first sheet
       const sheetName = wb.SheetNames.includes('Schedules') ? 'Schedules' : wb.SheetNames[0]
       const sheet     = wb.Sheets[sheetName]
       const rows      = XLSX.utils.sheet_to_json(sheet, { defval: '' }) as any[]
@@ -384,7 +395,8 @@ const SchedulePage = () => {
                                 <button onClick={() => handleRestore(s._id)} disabled={saving}
                                   className="bg-blue-500 hover:bg-blue-600 text-white w-8 h-8 rounded flex items-center justify-center disabled:opacity-50" title="Restore">↩️</button>
                               ) : (
-                                <button onClick={() => setDeleteTarget(s)}
+                                <button
+                                  onClick={() => { setDeleteTarget(s); setDeleteError(null) }}
                                   className="bg-red-500 hover:bg-red-600 text-white w-8 h-8 rounded flex items-center justify-center" title="Archive">🗑️</button>
                               )}
                             </td>
@@ -407,7 +419,9 @@ const SchedulePage = () => {
                         <div className="mt-2">
                           {showArchive
                             ? <button onClick={() => handleRestore(s._id)} className="bg-blue-500 text-white text-xs px-3 py-1 rounded">Restore</button>
-                            : <button onClick={() => setDeleteTarget(s)} className="bg-red-500 text-white text-xs px-3 py-1 rounded">Archive</button>
+                            : <button
+                                onClick={() => { setDeleteTarget(s); setDeleteError(null) }}
+                                className="bg-red-500 text-white text-xs px-3 py-1 rounded">Archive</button>
                           }
                         </div>
                       </div>
@@ -449,13 +463,33 @@ const SchedulePage = () => {
                 </select>
               </div>
 
+              {/* Faculty dropdown + preview card */}
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Faculty *</label>
                 <select value={form.faculty} onChange={e => setForm(p => ({ ...p, faculty: e.target.value }))}
                   className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400 bg-white">
                   <option value="">Select Faculty</option>
-                  {faculties.map(f => <option key={f._id} value={f._id}>{f.first_name} {f.last_name}</option>)}
+                  {faculties.map(f => (
+                    <option key={f._id} value={f._id}>{f.first_name} {f.last_name}</option>
+                  ))}
                 </select>
+
+                {/* Faculty preview card — shows when a faculty is selected */}
+                {selectedFaculty && (
+                  <div className="mt-2 flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
+                    <div className="w-8 h-8 rounded-full bg-blue-700 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">
+                      {selectedFaculty.first_name[0]}{selectedFaculty.last_name[0]}
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-blue-900 truncate">
+                        {selectedFaculty.first_name} {selectedFaculty.last_name}
+                      </p>
+                      <p className="text-xs text-blue-600">
+                        Faculty · <span className="text-green-600 font-medium">Active</span>
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               <div className="grid grid-cols-3 gap-3">
@@ -513,11 +547,23 @@ const SchedulePage = () => {
             <div className="p-6 text-center">
               <div className="text-4xl mb-3">📦</div>
               <h2 className="text-lg font-bold text-gray-800 mb-1">Archive Schedule?</h2>
-              <p className="text-sm text-gray-500 mb-6">
+              <p className="text-sm text-gray-500 mb-4">
                 <span className="font-semibold text-gray-700">{deleteTarget.subject?.code}</span> will be archived. You can restore it anytime.
               </p>
+
+              {/* Error from backend — shown when faculty is still active */}
+              {deleteError && (
+                <div className="mb-4 px-3 py-2 bg-red-50 border border-red-200 text-red-600 text-sm rounded-lg text-left">
+                  ⚠️ {deleteError}
+                </div>
+              )}
+
               <div className="flex gap-3 justify-center">
-                <button onClick={() => setDeleteTarget(null)} className="border border-gray-200 rounded-lg px-5 py-2 text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+                <button
+                  onClick={() => { setDeleteTarget(null); setDeleteError(null) }}
+                  className="border border-gray-200 rounded-lg px-5 py-2 text-sm text-gray-600 hover:bg-gray-50">
+                  Cancel
+                </button>
                 <button onClick={handleDelete} disabled={saving}
                   className="bg-red-500 hover:bg-red-600 text-white rounded-lg px-5 py-2 text-sm font-medium disabled:opacity-50">
                   {saving ? 'Archiving...' : 'Yes, Archive'}
@@ -538,7 +584,6 @@ const SchedulePage = () => {
             </div>
             <div className="p-6 space-y-4">
 
-              {/* Column reference */}
               <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                 <p className="text-sm font-semibold text-blue-900 mb-2">Required column headers:</p>
                 <div className="grid grid-cols-2 gap-1">
@@ -551,13 +596,11 @@ const SchedulePage = () => {
                 </p>
               </div>
 
-              {/* Download template */}
               <button onClick={downloadTemplate}
                 className="w-full border border-green-600 text-green-700 hover:bg-green-50 rounded-lg px-4 py-2 text-sm font-medium transition-colors">
                 ⬇️ Download Template First
               </button>
 
-              {/* File input */}
               <div>
                 <p className="text-sm text-gray-600 mb-2">Upload your filled template:</p>
                 <input ref={fileInputRef} type="file" accept=".xlsx,.xls"

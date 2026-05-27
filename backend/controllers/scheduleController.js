@@ -60,12 +60,18 @@ const getScheduleById = async (req, res) => {
 // POST /api/schedule
 const createSchedule = async (req, res) => {
   try {
-    const schedule = await Schedule.create(req.body);
-    res.status(201).json(schedule);
+    const body = { ...req.body }
+    // Convert empty string to null so Mongoose doesn't reject it,
+    // but also validate that faculty is actually provided
+    if (!body.faculty) {
+      return res.status(400).json({ message: 'Faculty is required.' })
+    }
+    const schedule = await Schedule.create(body)
+    res.status(201).json(schedule)
   } catch (err) {
-    res.status(400).json({ message: err.message });
+    res.status(400).json({ message: err.message })
   }
-};
+}
 
 // PUT /api/schedule/:id
 const updateSchedule = async (req, res) => {
@@ -83,10 +89,20 @@ const updateSchedule = async (req, res) => {
 // DELETE /api/schedule/:id  (soft delete)
 const deleteSchedule = async (req, res) => {
   try {
-    const schedule = await Schedule.findByIdAndUpdate(
-      req.params.id, { is_deleted: true }, { new: true }
-    );
+    const schedule = await Schedule.findById(req.params.id);
     if (!schedule) return res.status(404).json({ message: 'Schedule not found' });
+
+    // Block archive if faculty is still Active
+    if (schedule.faculty) {
+      const faculty = await RfidUser.findById(schedule.faculty);
+      if (faculty && faculty.status === 'Active') {
+        return res.status(400).json({
+          message: `Cannot archive this schedule. ${faculty.first_name} ${faculty.last_name} is still an active faculty member. Set the faculty to Inactive first before archiving.`,
+        });
+      }
+    }
+
+    await Schedule.findByIdAndUpdate(req.params.id, { is_deleted: true });
     res.json({ message: 'Schedule archived' });
   } catch (err) {
     res.status(500).json({ message: err.message });
@@ -129,15 +145,12 @@ const bulkImport = async (req, res) => {
     for (const [i, row] of rows.entries()) {
       const rowNum = i + 2;
       try {
-        // Resolve subject by code
         const subject = await Subject.findOne({ code: String(row.code || '').trim() });
         if (!subject) { errors.push(`Row ${rowNum}: Subject code "${row.code}" not found`); failed++; continue; }
 
-        // Resolve room by code
         const room = await Classroom.findOne({ room_code: String(row.room_code || '').trim() });
         if (!room) { errors.push(`Row ${rowNum}: Room "${row.room_code}" not found`); failed++; continue; }
 
-        // Resolve faculty by full name
         const nameParts = String(row.faculty_name || '').trim().split(' ');
         const faculty = await RfidUser.findOne({
           first_name: { $regex: nameParts[0], $options: 'i' },
@@ -146,7 +159,6 @@ const bulkImport = async (req, res) => {
         });
         if (!faculty) { errors.push(`Row ${rowNum}: Faculty "${row.faculty_name}" not found`); failed++; continue; }
 
-        // Resolve sections (comma-separated)
         const sectionNames = String(row.course_section || '').split(',').map(s => s.trim()).filter(Boolean);
         const sectionDocs  = await CourseSection.find({ name: { $in: sectionNames } });
         if (sectionDocs.length === 0) { errors.push(`Row ${rowNum}: No valid sections found for "${row.course_section}"`); failed++; continue; }

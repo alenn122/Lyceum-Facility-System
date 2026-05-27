@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Sidebar from '../components/Sidebar'
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000'
@@ -21,6 +21,62 @@ const emptyForm = {
 
 type FilterType = 'All Rooms' | 'Unoccupied' | 'Occupied'
 
+// ── Floor map config ─────────────────────────────────────────────────────────
+const FLOOR_LEVELS = [
+  {
+    label: 'Level 4 (Roof Top)',
+    key: '4th Floor',
+    rooms: ['ROOM401', 'ROOM402', 'ROOM403', 'ROOM404', 'LAB405', 'LAB406', 'LAB407'],
+  },
+  {
+    label: 'Level 3',
+    key: '3rd Floor',
+    rooms: ['ROOM301', 'ROOM302', 'ROOM303', 'ROOM304', 'ROOM305', 'ROOM306', 'ROOM307'],
+  },
+  {
+    label: 'Level 1',
+    key: '1st Floor',
+    rooms: ['CSS LAB', 'COMPUTER LAB 1', 'COMPUTER LAB 2'],
+  },
+  {
+    label: 'Level 0',
+    key: 'Ground Floor',
+    rooms: ['LOBBY'],
+  },
+]
+
+const FLOOR_OPTIONS = ['1st Floor', '2nd Floor', '3rd Floor', '4th Floor', 'Ground Floor']
+const TYPE_OPTIONS  = ['Classroom', 'Laboratory', 'Computer Lab', 'CSS Lab', 'Library', 'Lobby']
+
+// ── Add new room codes here as your building grows ───────────────────────────
+const ROOM_CODE_OPTIONS = [
+  // Ground / 1st Floor
+  'LOBBY',
+  'CSS LAB',
+  'COMPUTER LAB 1',
+  'COMPUTER LAB 2',
+  // 2nd Floor
+  'ROOM101',
+  'ROOM102',
+  'ROOM242',
+  // 3rd Floor
+  'ROOM301',
+  'ROOM302',
+  'ROOM303',
+  'ROOM304',
+  'ROOM305',
+  'ROOM306',
+  'ROOM307',
+  // 4th Floor
+  'ROOM401',
+  'ROOM402',
+  'ROOM403',
+  'ROOM404',
+  'LAB405',
+  'LAB406',
+  'LAB407',
+]
+
 const Rooms = () => {
   const [rooms, setRooms]       = useState<Room[]>([])
   const [loading, setLoading]   = useState(true)
@@ -38,12 +94,16 @@ const Rooms = () => {
   const [deleteTarget, setDeleteTarget] = useState<Room | null>(null)
 
   // Logic modal
-  const [logicRoom, setLogicRoom]           = useState<Room | null>(null)
-  const [logicForm, setLogicForm]           = useState({ grace_period: 0, allow_extension: true, double_tap_exit: true })
-  const [logicSaving, setLogicSaving]       = useState(false)
-  const [logicError, setLogicError]         = useState<string | null>(null)
+  const [logicRoom, setLogicRoom]       = useState<Room | null>(null)
+  const [logicForm, setLogicForm]       = useState({ grace_period: 0, allow_extension: true, double_tap_exit: true })
+  const [logicSaving, setLogicSaving]   = useState(false)
+  const [logicError, setLogicError]     = useState<string | null>(null)
 
-  // ── Fetch ──────────────────────────────────────────────────────────────────
+  // Floor map modal
+  const [showMap, setShowMap]           = useState(false)
+  const pollRef                         = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  // ── Fetch ────────────────────────────────────────────────────────────────
   const fetchRooms = useCallback(async () => {
     try {
       setLoading(true)
@@ -57,9 +117,27 @@ const Rooms = () => {
     }
   }, [])
 
+  // Silent refetch for polling (no loading spinner)
+  const silentRefetch = useCallback(async () => {
+    try {
+      const res = await fetch(`${API}/api/rooms`)
+      if (res.ok) setRooms(await res.json())
+    } catch {}
+  }, [])
+
   useEffect(() => { fetchRooms() }, [fetchRooms])
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  // Start polling when map is open, stop when closed
+  useEffect(() => {
+    if (showMap) {
+      pollRef.current = setInterval(silentRefetch, 10000)
+    } else {
+      if (pollRef.current) clearInterval(pollRef.current)
+    }
+    return () => { if (pollRef.current) clearInterval(pollRef.current) }
+  }, [showMap, silentRefetch])
+
+  // ── Derived ──────────────────────────────────────────────────────────────
   const filtered = rooms.filter(r => {
     const q = search.toLowerCase()
     const matchSearch = !q ||
@@ -73,7 +151,14 @@ const Rooms = () => {
     return matchSearch && matchFilter
   })
 
-  // ── Add Room ───────────────────────────────────────────────────────────────
+  // Room lookup by code for the map
+  const roomByCode = (code: string): Room | undefined =>
+    rooms.find(r => r.room_code.toLowerCase() === code.toLowerCase())
+
+  const occupiedCount   = rooms.filter(r => r.status === 'Occupied').length
+  const unoccupiedCount = rooms.filter(r => r.status === 'Unoccupied').length
+
+  // ── Add Room ─────────────────────────────────────────────────────────────
   const handleAdd = async () => {
     if (!form.room_code || !form.floor) {
       setFormError('Room Code and Floor are required.'); return
@@ -99,7 +184,7 @@ const Rooms = () => {
     }
   }
 
-  // ── Delete Room ────────────────────────────────────────────────────────────
+  // ── Delete Room ───────────────────────────────────────────────────────────
   const handleDelete = async () => {
     if (!deleteTarget) return
     try {
@@ -112,7 +197,7 @@ const Rooms = () => {
     }
   }
 
-  // ── Logic Config ───────────────────────────────────────────────────────────
+  // ── Logic Config ──────────────────────────────────────────────────────────
   const openLogic = (room: Room) => {
     setLogicRoom(room)
     setLogicForm({
@@ -142,7 +227,7 @@ const Rooms = () => {
     }
   }
 
-  // ── Render ─────────────────────────────────────────────────────────────────
+  // ── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="flex h-screen overflow-hidden bg-gray-100">
       <Sidebar />
@@ -177,10 +262,18 @@ const Rooms = () => {
                 </button>
               ))}
             </div>
-            <button onClick={() => { setForm({ ...emptyForm }); setFormError(null); setShowAdd(true) }}
-              className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
-              + Add New Room
-            </button>
+            <div className="flex items-center gap-2">
+              {/* Floor Map Button */}
+              <button
+                onClick={() => setShowMap(true)}
+                className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                🗺️ Floor Map
+              </button>
+              <button onClick={() => { setForm({ ...emptyForm }); setFormError(null); setShowAdd(true) }}
+                className="flex items-center gap-2 bg-blue-700 hover:bg-blue-800 text-white rounded-lg px-4 py-2 text-sm font-medium transition-colors">
+                + Add New Room
+              </button>
+            </div>
           </div>
 
           {/* Room Cards */}
@@ -243,7 +336,119 @@ const Rooms = () => {
         </div>
       </main>
 
-      {/* ── Add Room Modal ─────────────────────────────────────────────────── */}
+      {/* ── Floor Map Modal ──────────────────────────────────────────────────── */}
+      {showMap && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+
+            {/* Header */}
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between sticky top-0 bg-white z-10">
+              <div>
+                <h2 className="text-lg font-bold text-gray-800">🗺️ Live Floor Map</h2>
+                <div className="flex items-center gap-1 mt-0.5">
+                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" />
+                  <span className="text-xs text-gray-400">Live · updates every 10s</span>
+                </div>
+              </div>
+              <button onClick={() => setShowMap(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+            </div>
+
+            <div className="p-6">
+
+              {/* Stats bar */}
+              <div className="flex gap-4 mb-6">
+                <div className="flex-1 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-center">
+                  <p className="text-2xl font-bold text-red-600">{occupiedCount}</p>
+                  <p className="text-xs text-red-500 font-medium mt-0.5">Occupied</p>
+                </div>
+                <div className="flex-1 bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-center">
+                  <p className="text-2xl font-bold text-green-600">{unoccupiedCount}</p>
+                  <p className="text-xs text-green-500 font-medium mt-0.5">Unoccupied</p>
+                </div>
+                <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-center">
+                  <p className="text-2xl font-bold text-gray-600">{rooms.length}</p>
+                  <p className="text-xs text-gray-500 font-medium mt-0.5">Total Rooms</p>
+                </div>
+              </div>
+
+              {/* Floor levels */}
+              <div className="space-y-4">
+                {FLOOR_LEVELS.map(level => (
+                  <div key={level.key} className="border border-gray-200 rounded-xl overflow-hidden">
+                    {/* Floor label */}
+                    <div className="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center justify-between">
+                      <span className="text-xs font-bold text-gray-600 uppercase tracking-wide">{level.label}</span>
+                      <span className="text-xs text-gray-400">
+                        {level.rooms.filter(code => roomByCode(code)?.status === 'Occupied').length} occupied
+                      </span>
+                    </div>
+
+                    {/* Room grid */}
+                    <div className="p-3 flex flex-wrap gap-2">
+                      {level.rooms.map(code => {
+                        const room = roomByCode(code)
+                        const isOccupied   = room?.status === 'Occupied'
+                        const isUnoccupied = room?.status === 'Unoccupied'
+                        const isUnknown    = !room
+
+                        return (
+                          <div
+                            key={code}
+                            title={room ? `${room.room_code} — ${room.status}${room.classroom_type ? ` · ${room.classroom_type}` : ''}` : `${code} — Not in system`}
+                            className={`
+                              relative flex flex-col items-center justify-center
+                              rounded-lg border-2 px-3 py-2 min-w-[80px] text-center
+                              transition-all duration-300 cursor-default
+                              ${isOccupied   ? 'bg-red-100 border-red-400 text-red-800' : ''}
+                              ${isUnoccupied ? 'bg-green-100 border-green-400 text-green-800' : ''}
+                              ${isUnknown    ? 'bg-gray-100 border-gray-300 text-gray-400' : ''}
+                            `}
+                          >
+                            {/* Pulse dot for occupied */}
+                            {isOccupied && (
+                              <span className="absolute top-1.5 right-1.5 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                            )}
+                            <span className="text-xs font-bold leading-tight">{code}</span>
+                            {room && (
+                              <span className="text-[10px] font-medium mt-0.5 opacity-70">
+                                {isOccupied ? 'OCCUPIED' : 'FREE'}
+                              </span>
+                            )}
+                            {isUnknown && (
+                              <span className="text-[10px] mt-0.5 opacity-50">N/A</span>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Legend */}
+              <div className="mt-5 border border-gray-200 rounded-xl p-4">
+                <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Legend</p>
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded bg-red-100 border-2 border-red-400" />
+                    <span className="text-xs text-gray-600">Occupied — class in progress / faculty present</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded bg-green-100 border-2 border-green-400" />
+                    <span className="text-xs text-gray-600">Unoccupied — empty, available</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-5 h-5 rounded bg-gray-100 border-2 border-gray-300" />
+                    <span className="text-xs text-gray-600">Not in system</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add Room Modal ───────────────────────────────────────────────────── */}
       {showAdd && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
@@ -253,25 +458,41 @@ const Rooms = () => {
             </div>
             <div className="p-6 space-y-3">
               {formError && <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded-lg">{formError}</p>}
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Room Code *</label>
-                <input value={form.room_code} onChange={e => setForm(p => ({ ...p, room_code: e.target.value }))}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400" placeholder="e.g. ROOM101" />
+                <select value={form.room_code} onChange={e => setForm(p => ({ ...p, room_code: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400 bg-white">
+                  <option value="">Select Room Code</option>
+                  {ROOM_CODE_OPTIONS.filter(code => !rooms.some(r => r.room_code === code)).map(code => (
+                    <option key={code} value={code}>{code}</option>
+                  ))}
+                </select>
               </div>
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Floor *</label>
-                <input value={form.floor} onChange={e => setForm(p => ({ ...p, floor: e.target.value }))}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400" placeholder="e.g. 2nd Floor" />
+                <select value={form.floor} onChange={e => setForm(p => ({ ...p, floor: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400 bg-white">
+                  <option value="">Select Floor</option>
+                  {FLOOR_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
               </div>
+
               <div>
-                <label className="text-xs text-gray-500 mb-1 block">Type</label>
-                <input value={form.classroom_type} onChange={e => setForm(p => ({ ...p, classroom_type: e.target.value }))}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400" placeholder="e.g. CLASSROOM" />
+                <label className="text-xs text-gray-500 mb-1 block">Classroom Type</label>
+                <select value={form.classroom_type} onChange={e => setForm(p => ({ ...p, classroom_type: e.target.value }))}
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400 bg-white">
+                  <option value="">Select Type</option>
+                  {TYPE_OPTIONS.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
               </div>
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Capacity</label>
                 <input type="number" value={form.capacity} onChange={e => setForm(p => ({ ...p, capacity: e.target.value }))}
-                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400" placeholder="e.g. 40" />
+                  className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-full outline-none focus:border-blue-400"
+                  placeholder="e.g. 40" />
               </div>
             </div>
             <div className="px-6 pb-6 flex gap-3 justify-end">
@@ -285,7 +506,7 @@ const Rooms = () => {
         </div>
       )}
 
-      {/* ── Confirm Delete Modal ───────────────────────────────────────────── */}
+      {/* ── Confirm Delete Modal ─────────────────────────────────────────────── */}
       {deleteTarget && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
@@ -308,7 +529,7 @@ const Rooms = () => {
         </div>
       )}
 
-      {/* ── Logic Config Modal ─────────────────────────────────────────────── */}
+      {/* ── Logic Config Modal ───────────────────────────────────────────────── */}
       {logicRoom && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm">
@@ -323,25 +544,21 @@ const Rooms = () => {
             <div className="p-6 space-y-5">
               {logicError && <p className="text-red-500 text-sm bg-red-50 px-3 py-2 rounded-lg">{logicError}</p>}
 
-              {/* Grace Period */}
               <div>
                 <div className="flex items-center justify-between mb-1">
                   <label className="text-sm font-medium text-gray-700">Grace Period (Minutes)</label>
                   <span className="text-lg font-bold text-blue-700 w-10 text-right">{logicForm.grace_period}</span>
                 </div>
                 <p className="text-xs text-gray-400 mb-2">How long power stays on after schedule ends.</p>
-                <input
-                  type="range" min={0} max={60} step={1}
+                <input type="range" min={0} max={60} step={1}
                   value={logicForm.grace_period}
                   onChange={e => setLogicForm(p => ({ ...p, grace_period: Number(e.target.value) }))}
-                  className="w-full accent-blue-700"
-                />
+                  className="w-full accent-blue-700" />
                 <div className="flex justify-between text-xs text-gray-400 mt-1">
                   <span>0</span><span>30</span><span>60</span>
                 </div>
               </div>
 
-              {/* Allow Tap-to-Extend */}
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-gray-700">Allow Tap-to-Extend</p>
@@ -356,7 +573,6 @@ const Rooms = () => {
                 </button>
               </div>
 
-              {/* Double-Tap Exit */}
               <div className="flex items-start justify-between gap-4">
                 <div>
                   <p className="text-sm font-medium text-gray-700">Enable Double-Tap Exit</p>
