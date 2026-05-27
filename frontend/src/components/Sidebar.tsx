@@ -3,12 +3,12 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import LSP from '../assets/images/LSP.jpg'
 
 const navItems = [
-  { label: 'Home',              icon: '🏠', path: '/dashboard' },
-  { label: 'Users',             icon: '👥', path: '/users' },
-  { label: 'Rooms',             icon: '🚪', path: '/rooms' },
-  { label: 'Schedule',          icon: '📅', path: '/schedule' },
+  { label: 'Home', icon: '🏠', path: '/dashboard' },
+  { label: 'Users', icon: '👥', path: '/users' },
+  { label: 'Rooms', icon: '🚪', path: '/rooms' },
+  { label: 'Schedule', icon: '📅', path: '/schedule' },
   { label: 'Device Management', icon: '🖥️', path: '/devices' },
-  { label: 'Access Logs',       icon: '📋', path: '/logs' },
+  { label: 'Access Logs', icon: '📋', path: '/logs' },
 ]
 
 const Sidebar = () => {
@@ -72,7 +72,9 @@ const Sidebar = () => {
 
       {/* User & Logout */}
       <div className="p-4 border-t border-white/20">
-        <p className="text-white font-semibold text-sm">{user.username || 'Admin'}</p>
+        <p className="text-white font-semibold text-sm capitalize">
+          {user.username || 'Admin'}
+        </p>
         <p className="text-blue-200 text-xs mb-3">Administrator</p>
         <button
           onClick={handleLogout}

@@ -1,5 +1,5 @@
 node_modules/
 # THIS MUST BE AT GITIGNORE PAG NAKA PUBLIC YUNG REPO -----------------------------------------------------------
-# .env
-# seeder.js
-# clearUsers.js
+.env
+seeder.js
+clearUsers.js

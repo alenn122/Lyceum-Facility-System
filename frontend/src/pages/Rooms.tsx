@@ -24,7 +24,7 @@ type FilterType = 'All Rooms' | 'Unoccupied' | 'Occupied'
 // ── Floor map config ─────────────────────────────────────────────────────────
 const FLOOR_LEVELS = [
   {
-    label: 'Level 4 (Roof Top)',
+    label: 'Level 4',
     key: '4th Floor',
     rooms: ['ROOM401', 'ROOM402', 'ROOM403', 'ROOM404', 'LAB405', 'LAB406', 'LAB407'],
   },

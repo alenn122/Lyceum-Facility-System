@@ -26,5 +26,5 @@ dist-ssr
 node_modules/
 dist/
 # THIS MUST BE AT GITIGNORE PAG NAKA PUBLIC YUNG REPO --------------------------------------------
-# .env
-# .env.local
+.env
+.env.local
